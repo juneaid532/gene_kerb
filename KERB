@@ -1,0 +1,62 @@
+#SCRIPT renew keytab for user
+cronjob=$1
+principal="$USER_PRINCIPAL_NAME"
+user_name="${USERNAME:-$USER}"
+keytab_path="$HOME/$user_name.keytab"
+
+
+init_keytab () {
+               read -e -p "Enter path to save keytab: > " -i "$HOME/$user_name.keytab" keytab_path
+               read -e -p "Enter user principal: > " -i "$USER_PRINCIPAL_NAME" principal
+               user_name=$(echo $principal | cut -d'@' -f 1)
+       for counter in {1..3}
+       do
+               read -s -p "Enter $principal password: > " user_pass
+               echo ""
+               #read -e -p "Enter path to save keytab: > " -i "$HOME/$user_name.keytab" keytab_path
+               printf "%b" "addent -password -p $principal -k 1 -e arcfour-hmac\n$user_pass\nwkt $keytab_path\n" | ktutil > /dev/null
+               init_credentials
+               ret=$?
+               [ "$ret" -eq "0" ] && exit 0
+               echo "ret: $ret"
+               echo "---------------------------------------------------------------------------------------------------"
+               echo "You put wrong password for $counter times."
+               echo "Please ensure to put correct password for credentials: $principal"
+               echo "---------------------------------------------------------------------------------------------------"
+       done
+               echo ""
+}
+
+init_renew () {
+   if [ ! -z $principal ] && [ ! -z $user_name ]; then
+     return 1
+   fi
+   kinit -R $principal 2> /dev/null
+   ret=$?
+   if [ "$ret" -eq "1" ]; then
+       [ -e $keytab_path ] && rm $keytab_path
+   fi
+   return $ret
+}
+
+init_credentials () {
+   kinit -l 7d -r 7d -k -t $keytab_path $principal 2> /dev/null
+   ret=$?
+   if [ "$ret" -eq "1" ]; then
+      [ -e $keytab_path ] && rm $keytab_path
+   fi
+   return $ret
+}
+# DEBUG echo "user: $user_name, principal: $principal, keytab: $keytab_path"
+init_renew
+RETVAL=$?
+
+if [ "$RETVAL" -eq "1" ]; then
+   if [ ! -f $keytab_path ]; then
+       if [ "$cronjob" == "cron" ]; then
+           exit 1
+       fi
+       init_keytab
+   fi
+   init_credentials
+fi
